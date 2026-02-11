@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
     addClickJaap,
     addManualJaap,
@@ -25,9 +25,9 @@ function getTodayDate(): string {
     return new Date().toISOString().split('T')[0];
 }
 
-/** Read cached data from localStorage for instant render */
-function getCachedState(userId: string): JaapState | null {
-    if (!userId) return null;
+/** Read cached data from localStorage — only works on client side */
+function readLocalCache(userId: string): Partial<JaapState> | null {
+    if (typeof window === 'undefined' || !userId) return null;
     try {
         const today = getTodayDate();
         const userRaw = lsGet(`jaap_${userId}_userData`);
@@ -36,17 +36,18 @@ function getCachedState(userId: string): JaapState | null {
 
         if (!userRaw && !dailyRaw) return null;
 
-        const userData = userRaw ? JSON.parse(userRaw) : { totalJaap: 0, currentStreak: 0 };
-        const dailyEntry = dailyRaw ? JSON.parse(dailyRaw) : { totalCount: 0 };
+        const userData = userRaw ? JSON.parse(userRaw) : {};
+        const dailyEntry = dailyRaw ? JSON.parse(dailyRaw) : {};
         const logs: DailyLog[] = logsRaw ? JSON.parse(logsRaw) : [];
+
+        console.log('[Cache] LocalStorage data found — dailyCount:', dailyEntry.totalCount, 'totalJaap:', userData.totalJaap);
 
         return {
             dailyCount: dailyEntry.totalCount || 0,
             totalJaap: userData.totalJaap || 0,
             streak: userData.currentStreak || 0,
-            combinedTotal: userData.totalJaap || 0, // approximate until Firebase loads
+            combinedTotal: userData.totalJaap || 0,
             todayLogs: logs,
-            isLoading: false, // show cached data immediately
         };
     } catch {
         return null;
@@ -54,28 +55,22 @@ function getCachedState(userId: string): JaapState | null {
 }
 
 export function useJaap(userId: string) {
-    const [state, setState] = useState<JaapState>(() => {
-        // Try instant render from cache
-        const cached = getCachedState(userId);
-        if (cached) return cached;
-        return {
-            dailyCount: 0,
-            totalJaap: 0,
-            streak: 0,
-            combinedTotal: 0,
-            todayLogs: [],
-            isLoading: true,
-        };
+    // Always start with loading state (SSR safe — no localStorage access here)
+    const [state, setState] = useState<JaapState>({
+        dailyCount: 0,
+        totalJaap: 0,
+        streak: 0,
+        combinedTotal: 0,
+        todayLogs: [],
+        isLoading: true,
     });
-
-    const hasFetched = useRef(false);
 
     // Load fresh data from Firebase (parallel)
     const loadData = useCallback(async () => {
         if (!userId) return;
 
         try {
-            // All 4 Firebase calls run in PARALLEL — much faster!
+            // All 4 Firebase calls run in PARALLEL
             const [userData, dailyEntry, combined, logs] = await Promise.all([
                 getOrCreateUser(userId, userId === 'sevak1' ? 'Sevak 1' : 'Sevak 2'),
                 getOrCreateDailyEntry(userId),
@@ -83,16 +78,30 @@ export function useJaap(userId: string) {
                 getTodayLogs(userId).catch(() => [] as DailyLog[]),
             ]);
 
-            setState({
+            const firebaseData = {
                 dailyCount: dailyEntry?.totalCount || 0,
                 totalJaap: userData?.totalJaap || 0,
                 streak: userData?.currentStreak || 0,
                 combinedTotal: combined,
                 todayLogs: logs,
-                isLoading: false,
+            };
+
+            console.log('[Firebase] Fetched data — dailyCount:', firebaseData.dailyCount, 'totalJaap:', firebaseData.totalJaap);
+
+            setState((prev) => {
+                // Take the HIGHER values between current state (localStorage) and Firebase
+                // This prevents Firebase zeros from overwriting good localStorage data
+                return {
+                    dailyCount: Math.max(prev.dailyCount, firebaseData.dailyCount),
+                    totalJaap: Math.max(prev.totalJaap, firebaseData.totalJaap),
+                    streak: Math.max(prev.streak, firebaseData.streak),
+                    combinedTotal: Math.max(prev.combinedTotal, firebaseData.combinedTotal),
+                    todayLogs: firebaseData.todayLogs.length > 0 ? firebaseData.todayLogs : prev.todayLogs,
+                    isLoading: false,
+                };
             });
         } catch (error) {
-            console.error('Error loading jaap data:', error);
+            console.error('[Firebase] Error loading jaap data:', error);
             setState((prev) => ({ ...prev, isLoading: false }));
         }
     }, [userId]);
@@ -100,11 +109,21 @@ export function useJaap(userId: string) {
     useEffect(() => {
         if (!userId) return;
 
-        // If we already have cached data, refresh silently in background
-        if (!hasFetched.current) {
-            hasFetched.current = true;
-            loadData();
+        // STEP 1: Immediately read localStorage cache (only runs on CLIENT after hydration)
+        const cached = readLocalCache(userId);
+        if (cached) {
+            setState({
+                dailyCount: cached.dailyCount || 0,
+                totalJaap: cached.totalJaap || 0,
+                streak: cached.streak || 0,
+                combinedTotal: cached.combinedTotal || 0,
+                todayLogs: cached.todayLogs || [],
+                isLoading: false, // Show cached data immediately — no loading spinner!
+            });
         }
+
+        // STEP 2: Fetch fresh data from Firebase in background
+        loadData();
     }, [userId, loadData]);
 
     const incrementJaap = useCallback(async () => {
@@ -126,7 +145,6 @@ export function useJaap(userId: string) {
             await addClickJaap(userId);
         } catch (error) {
             console.error('Error adding click jaap:', error);
-            // Revert on error
             loadData();
         }
     }, [userId, loadData]);
