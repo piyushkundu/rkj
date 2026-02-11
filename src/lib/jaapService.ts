@@ -46,15 +46,17 @@ export async function getOrCreateUser(userId: string, displayName: string) {
                 lastJaapDate: '',
             };
             await setDoc(userRef, data);
+            console.log('[Firebase] ✅ New user created:', userId);
             lsSet(`jaap_${userId}_userData`, data);
             return data;
         }
 
         const data = userSnap.data();
+        console.log('[Firebase] ✅ User loaded:', userId, 'totalJaap:', data.totalJaap);
         lsSet(`jaap_${userId}_userData`, data);
         return data;
     } catch (err) {
-        console.warn('Firebase error, using localStorage:', err);
+        console.error('[Firebase] ❌ User load failed:', err);
         const stored = lsGet(`jaap_${userId}_userData`);
         if (stored) return JSON.parse(stored);
         return { totalJaap: 0, currentStreak: 0, lastJaapDate: '' };
@@ -82,15 +84,17 @@ export async function getOrCreateDailyEntry(userId: string) {
                 timestamp: Date.now(),
             };
             await setDoc(entryRef, data);
+            console.log('[Firebase] ✅ New daily entry created:', entryId);
             lsSet(`jaap_${userId}_daily_${today}`, data);
             return data;
         }
 
         const data = entrySnap.data();
+        console.log('[Firebase] ✅ Daily entry loaded:', entryId, 'total:', data.totalCount);
         lsSet(`jaap_${userId}_daily_${today}`, data);
         return data;
     } catch (err) {
-        console.warn('Firebase error, using localStorage:', err);
+        console.error('[Firebase] ❌ Daily entry failed:', err);
         const stored = lsGet(`jaap_${userId}_daily_${today}`);
         if (stored) return JSON.parse(stored);
         return { clickCount: 0, manualCount: 0, totalCount: 0, date: today };
@@ -124,12 +128,13 @@ export async function addClickJaap(userId: string) {
             addDailyLog(userId, 'click', 1),
         ]);
 
+        console.log('[Firebase] ✅ Click jaap saved to database!');
         // Update localStorage backup from cached values (no extra read-back)
         addClickLocal(userId);
 
         return { clickCount: 1, totalCount: 1, date: today };
     } catch (err) {
-        console.warn('Firebase error, using localStorage:', err);
+        console.error('[Firebase] ❌ Click jaap save failed:', err);
         return addClickLocal(userId);
     }
 }
@@ -181,12 +186,13 @@ export async function addManualJaap(userId: string, count: number) {
             addDailyLog(userId, 'manual', count),
         ]);
 
+        console.log('[Firebase] ✅ Manual jaap saved to database! Count:', count);
         // Update localStorage backup from cached values (no extra read-back)
         addManualLocal(userId, count);
 
         return { manualCount: count, totalCount: count, date: today };
     } catch (err) {
-        console.warn('Firebase error, using localStorage:', err);
+        console.error('[Firebase] ❌ Manual jaap save failed:', err);
         return addManualLocal(userId, count);
     }
 }
@@ -225,8 +231,9 @@ async function addDailyLog(userId: string, type: 'click' | 'manual', count: numb
             count,
             timestamp: Date.now(),
         });
-    } catch {
-        // fallback
+        console.log('[Firebase] ✅ Daily log saved');
+    } catch (err) {
+        console.error('[Firebase] ❌ Daily log save failed:', err);
     }
     addLogLocal(userId, type, count);
 }
@@ -258,9 +265,10 @@ export async function getTodayLogs(userId: string): Promise<DailyLog[]> {
             count: d.data().count as number,
             timestamp: d.data().timestamp as number,
         }));
+        console.log('[Firebase] ✅ Today logs loaded:', logs.length, 'entries');
         if (logs.length > 0) return logs;
-    } catch {
-        // fallback
+    } catch (err) {
+        console.error('[Firebase] ❌ Today logs failed:', err);
     }
 
     // Fallback to localStorage
@@ -381,9 +389,10 @@ export async function getCombinedTotal(): Promise<number> {
         snapshot.docs.forEach((d) => {
             total += d.data().totalJaap || 0;
         });
+        console.log('[Firebase] ✅ Combined total loaded:', total);
         if (total > 0) return total;
-    } catch {
-        // fallback
+    } catch (err) {
+        console.error('[Firebase] ❌ Combined total failed:', err);
     }
 
     // Fallback
