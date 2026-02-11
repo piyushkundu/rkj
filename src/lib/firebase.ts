@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
@@ -10,29 +10,10 @@ const firebaseConfig = {
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
 };
 
-// Log Firebase config to help debug connection issues
-console.log('[Firebase] Project ID:', firebaseConfig.projectId);
-console.log('[Firebase] Has API Key:', !!firebaseConfig.apiKey);
+// Initialize Firebase only if not already initialized
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const db = getFirestore(app);
 
-let db: Firestore;
+console.log('[Firebase] ✅ Connected to project:', firebaseConfig.projectId);
 
-if (getApps().length === 0) {
-    const app = initializeApp(firebaseConfig);
-    // Firebase v12: Use persistentLocalCache for offline data caching
-    try {
-        db = initializeFirestore(app, {
-            localCache: persistentLocalCache({
-                tabManager: persistentMultipleTabManager()
-            })
-        });
-        console.log('[Firebase] ✅ Firestore initialized with persistent cache');
-    } catch {
-        // If persistent cache fails (e.g. some browsers), fallback to default
-        db = getFirestore(app);
-        console.log('[Firebase] Firestore initialized with default cache');
-    }
-} else {
-    db = getFirestore(getApps()[0]);
-}
-
-export { db };
+export { app, db };
