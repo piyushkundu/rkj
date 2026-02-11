@@ -19,7 +19,7 @@ function getTodayDate(): string {
 }
 
 // ===== Helper: localStorage backup =====
-function lsGet(key: string): string | null {
+export function lsGet(key: string): string | null {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem(key);
 }
@@ -107,31 +107,27 @@ export async function addClickJaap(userId: string) {
         await getOrCreateDailyEntry(userId);
 
         const entryRef = doc(db, 'jaapEntries', entryId);
-        await updateDoc(entryRef, {
-            clickCount: increment(1),
-            totalCount: increment(1),
-            timestamp: Date.now(),
-        });
-
         const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, {
-            totalJaap: increment(1),
-            lastJaapDate: today,
-        });
 
-        // Update streak
-        await updateStreak(userId);
+        // Run all updates in parallel — no need to wait for each
+        await Promise.all([
+            updateDoc(entryRef, {
+                clickCount: increment(1),
+                totalCount: increment(1),
+                timestamp: Date.now(),
+            }),
+            updateDoc(userRef, {
+                totalJaap: increment(1),
+                lastJaapDate: today,
+            }),
+            updateStreak(userId),
+            addDailyLog(userId, 'click', 1),
+        ]);
 
-        // Add to daily log
-        await addDailyLog(userId, 'click', 1);
+        // Update localStorage backup from cached values (no extra read-back)
+        addClickLocal(userId);
 
-        // Update local backup
-        const snap = await getDoc(entryRef);
-        if (snap.exists()) lsSet(`jaap_${userId}_daily_${today}`, snap.data());
-        const uSnap = await getDoc(userRef);
-        if (uSnap.exists()) lsSet(`jaap_${userId}_userData`, uSnap.data());
-
-        return snap.data();
+        return { clickCount: 1, totalCount: 1, date: today };
     } catch (err) {
         console.warn('Firebase error, using localStorage:', err);
         return addClickLocal(userId);
@@ -168,27 +164,27 @@ export async function addManualJaap(userId: string, count: number) {
         await getOrCreateDailyEntry(userId);
 
         const entryRef = doc(db, 'jaapEntries', entryId);
-        await updateDoc(entryRef, {
-            manualCount: increment(count),
-            totalCount: increment(count),
-            timestamp: Date.now(),
-        });
-
         const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, {
-            totalJaap: increment(count),
-            lastJaapDate: today,
-        });
 
-        await updateStreak(userId);
-        await addDailyLog(userId, 'manual', count);
+        // Run all updates in parallel
+        await Promise.all([
+            updateDoc(entryRef, {
+                manualCount: increment(count),
+                totalCount: increment(count),
+                timestamp: Date.now(),
+            }),
+            updateDoc(userRef, {
+                totalJaap: increment(count),
+                lastJaapDate: today,
+            }),
+            updateStreak(userId),
+            addDailyLog(userId, 'manual', count),
+        ]);
 
-        const snap = await getDoc(entryRef);
-        if (snap.exists()) lsSet(`jaap_${userId}_daily_${today}`, snap.data());
-        const uSnap = await getDoc(userRef);
-        if (uSnap.exists()) lsSet(`jaap_${userId}_userData`, uSnap.data());
+        // Update localStorage backup from cached values (no extra read-back)
+        addManualLocal(userId, count);
 
-        return snap.data();
+        return { manualCount: count, totalCount: count, date: today };
     } catch (err) {
         console.warn('Firebase error, using localStorage:', err);
         return addManualLocal(userId, count);
