@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, enableMultiTabIndexedDbPersistence, connectFirestoreEmulator } from 'firebase/firestore';
+import { initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore } from 'firebase/firestore';
 
 const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
@@ -14,17 +14,25 @@ const firebaseConfig = {
 console.log('[Firebase] Project ID:', firebaseConfig.projectId);
 console.log('[Firebase] Has API Key:', !!firebaseConfig.apiKey);
 
-// Initialize Firebase only if not already initialized
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-const db = getFirestore(app);
+let db: Firestore;
 
-// Enable offline persistence for faster loads
-if (typeof window !== 'undefined') {
-    enableMultiTabIndexedDbPersistence(db).then(() => {
-        console.log('[Firebase] Offline persistence enabled ✅');
-    }).catch((err) => {
-        console.warn('[Firebase] Persistence failed:', err.code);
-    });
+if (getApps().length === 0) {
+    const app = initializeApp(firebaseConfig);
+    // Firebase v12: Use persistentLocalCache for offline data caching
+    try {
+        db = initializeFirestore(app, {
+            localCache: persistentLocalCache({
+                tabManager: persistentMultipleTabManager()
+            })
+        });
+        console.log('[Firebase] ✅ Firestore initialized with persistent cache');
+    } catch {
+        // If persistent cache fails (e.g. some browsers), fallback to default
+        db = getFirestore(app);
+        console.log('[Firebase] Firestore initialized with default cache');
+    }
+} else {
+    db = getFirestore(getApps()[0]);
 }
 
-export { app, db };
+export { db };

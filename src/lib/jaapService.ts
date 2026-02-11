@@ -113,7 +113,7 @@ export async function addClickJaap(userId: string) {
         const entryRef = doc(db, 'jaapEntries', entryId);
         const userRef = doc(db, 'users', userId);
 
-        // Run all updates in parallel — no need to wait for each
+        // Run all updates in parallel
         await Promise.all([
             updateDoc(entryRef, {
                 clickCount: increment(1),
@@ -128,11 +128,16 @@ export async function addClickJaap(userId: string) {
             addDailyLog(userId, 'click', 1),
         ]);
 
-        console.log('[Firebase] ✅ Click jaap saved to database!');
-        // Update localStorage backup from cached values (no extra read-back)
-        addClickLocal(userId);
+        // Read back confirmed data from Firebase and save to localStorage
+        const [entrySnap, userSnap] = await Promise.all([
+            getDoc(entryRef),
+            getDoc(userRef),
+        ]);
+        if (entrySnap.exists()) lsSet(`jaap_${userId}_daily_${today}`, entrySnap.data());
+        if (userSnap.exists()) lsSet(`jaap_${userId}_userData`, userSnap.data());
 
-        return { clickCount: 1, totalCount: 1, date: today };
+        console.log('[Firebase] ✅ Click jaap saved to database!');
+        return entrySnap.exists() ? entrySnap.data() : { clickCount: 1, totalCount: 1, date: today };
     } catch (err) {
         console.error('[Firebase] ❌ Click jaap save failed:', err);
         return addClickLocal(userId);
@@ -186,11 +191,16 @@ export async function addManualJaap(userId: string, count: number) {
             addDailyLog(userId, 'manual', count),
         ]);
 
-        console.log('[Firebase] ✅ Manual jaap saved to database! Count:', count);
-        // Update localStorage backup from cached values (no extra read-back)
-        addManualLocal(userId, count);
+        // Read back confirmed data from Firebase and save to localStorage
+        const [entrySnap, userSnap] = await Promise.all([
+            getDoc(entryRef),
+            getDoc(userRef),
+        ]);
+        if (entrySnap.exists()) lsSet(`jaap_${userId}_daily_${today}`, entrySnap.data());
+        if (userSnap.exists()) lsSet(`jaap_${userId}_userData`, userSnap.data());
 
-        return { manualCount: count, totalCount: count, date: today };
+        console.log('[Firebase] ✅ Manual jaap saved to database! Count:', count);
+        return entrySnap.exists() ? entrySnap.data() : { manualCount: count, totalCount: count, date: today };
     } catch (err) {
         console.error('[Firebase] ❌ Manual jaap save failed:', err);
         return addManualLocal(userId, count);
