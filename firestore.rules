@@ -1,0 +1,29 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Users collection - anyone can read/write their own user doc
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // Jaap entries - anyone can read/write
+    match /jaapEntries/{entryId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // Daily logs - anyone can read/write
+    match /dailyLogs/{logId} {
+      allow read: if true;
+      allow write: if true;
+    }
+    
+    // Test collection (for connectivity tests)
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+  }
+}
