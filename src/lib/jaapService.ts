@@ -1,7 +1,7 @@
 import {
     collection,
     doc,
-    getDocFromServer,
+    getDoc,
     getDocs,
     setDoc,
     updateDoc,
@@ -17,6 +17,17 @@ function getTodayDate(): string {
     return now.toISOString().split('T')[0];
 }
 
+// ===== Timeout helper: prevents Firebase calls from hanging forever =====
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+    return Promise.race([
+        promise,
+        new Promise<T>((resolve) => setTimeout(() => {
+            console.warn(`[Firebase] ⏱️ Request timed out after ${ms}ms, using fallback`);
+            resolve(fallback);
+        }, ms)),
+    ]);
+}
+
 // ===== Helper: localStorage backup =====
 export function lsGet(key: string): string | null {
     if (typeof window === 'undefined') return null;
@@ -30,25 +41,36 @@ function lsSet(key: string, val: unknown) {
 // ===== USER FUNCTIONS =====
 
 export async function getOrCreateUser(userId: string, displayName: string) {
+    const defaultData = {
+        id: userId,
+        displayName,
+        totalJaap: 0,
+        currentStreak: 0,
+        dailyTarget: 108,
+        soundEnabled: true,
+        lastJaapDate: '',
+    };
+
     try {
         console.log('[Firebase] 🔄 getOrCreateUser for:', userId);
         const userRef = doc(db, 'users', userId);
-        const userSnap = await getDocFromServer(userRef);
+        const userSnap = await withTimeout(getDoc(userRef), 8000, null);
+
+        if (userSnap === null) {
+            // Timed out — try setDoc and use localStorage
+            try {
+                await withTimeout(setDoc(userRef, defaultData, { merge: true }), 5000, null);
+            } catch { /* ignore */ }
+            const stored = lsGet(`jaap_${userId}_userData`);
+            if (stored) return JSON.parse(stored);
+            return defaultData;
+        }
 
         if (!userSnap.exists()) {
-            const data = {
-                id: userId,
-                displayName,
-                totalJaap: 0,
-                currentStreak: 0,
-                dailyTarget: 108,
-                soundEnabled: true,
-                lastJaapDate: '',
-            };
-            await setDoc(userRef, data);
+            await setDoc(userRef, defaultData);
             console.log('[Firebase] ✅ New user created:', userId);
-            lsSet(`jaap_${userId}_userData`, data);
-            return data;
+            lsSet(`jaap_${userId}_userData`, defaultData);
+            return defaultData;
         }
 
         const data = userSnap.data();
@@ -57,28 +79,9 @@ export async function getOrCreateUser(userId: string, displayName: string) {
         return data;
     } catch (err) {
         console.error('[Firebase] ❌ User load failed:', err);
-        // Fallback: try to create the user if it doesn't exist
-        try {
-            const userRef = doc(db, 'users', userId);
-            const data = {
-                id: userId,
-                displayName,
-                totalJaap: 0,
-                currentStreak: 0,
-                dailyTarget: 108,
-                soundEnabled: true,
-                lastJaapDate: '',
-            };
-            await setDoc(userRef, data, { merge: true });
-            console.log('[Firebase] ✅ User created via fallback setDoc');
-            lsSet(`jaap_${userId}_userData`, data);
-            return data;
-        } catch (err2) {
-            console.error('[Firebase] ❌ Fallback user creation also failed:', err2);
-        }
         const stored = lsGet(`jaap_${userId}_userData`);
         if (stored) return JSON.parse(stored);
-        return { totalJaap: 0, currentStreak: 0, lastJaapDate: '' };
+        return defaultData;
     }
 }
 
@@ -87,26 +90,36 @@ export async function getOrCreateUser(userId: string, displayName: string) {
 export async function getOrCreateDailyEntry(userId: string) {
     const today = getTodayDate();
     const entryId = `${userId}_${today}`;
+    const defaultData = {
+        id: entryId,
+        userId,
+        date: today,
+        clickCount: 0,
+        manualCount: 0,
+        totalCount: 0,
+        timestamp: Date.now(),
+    };
 
     try {
         console.log('[Firebase] 🔄 getOrCreateDailyEntry for:', entryId);
         const entryRef = doc(db, 'jaapEntries', entryId);
-        const entrySnap = await getDocFromServer(entryRef);
+        const entrySnap = await withTimeout(getDoc(entryRef), 8000, null);
+
+        if (entrySnap === null) {
+            // Timed out
+            try {
+                await withTimeout(setDoc(entryRef, defaultData, { merge: true }), 5000, null);
+            } catch { /* ignore */ }
+            const stored = lsGet(`jaap_${userId}_daily_${today}`);
+            if (stored) return JSON.parse(stored);
+            return defaultData;
+        }
 
         if (!entrySnap.exists()) {
-            const data = {
-                id: entryId,
-                userId,
-                date: today,
-                clickCount: 0,
-                manualCount: 0,
-                totalCount: 0,
-                timestamp: Date.now(),
-            };
-            await setDoc(entryRef, data);
+            await setDoc(entryRef, defaultData);
             console.log('[Firebase] ✅ New daily entry created:', entryId);
-            lsSet(`jaap_${userId}_daily_${today}`, data);
-            return data;
+            lsSet(`jaap_${userId}_daily_${today}`, defaultData);
+            return defaultData;
         }
 
         const data = entrySnap.data();
@@ -115,28 +128,9 @@ export async function getOrCreateDailyEntry(userId: string) {
         return data;
     } catch (err) {
         console.error('[Firebase] ❌ Daily entry failed:', err);
-        // Fallback: just create the entry regardless
-        try {
-            const entryRef = doc(db, 'jaapEntries', entryId);
-            const data = {
-                id: entryId,
-                userId,
-                date: today,
-                clickCount: 0,
-                manualCount: 0,
-                totalCount: 0,
-                timestamp: Date.now(),
-            };
-            await setDoc(entryRef, data, { merge: true });
-            console.log('[Firebase] ✅ Daily entry created via fallback setDoc');
-            lsSet(`jaap_${userId}_daily_${today}`, data);
-            return data;
-        } catch (err2) {
-            console.error('[Firebase] ❌ Fallback entry creation also failed:', err2);
-        }
         const stored = lsGet(`jaap_${userId}_daily_${today}`);
         if (stored) return JSON.parse(stored);
-        return { clickCount: 0, manualCount: 0, totalCount: 0, date: today };
+        return defaultData;
     }
 }
 
@@ -148,14 +142,11 @@ export async function addClickJaap(userId: string) {
 
     try {
         console.log('[Firebase] 🔄 addClickJaap for:', userId);
-
-        // Step 1: Ensure daily entry exists
         await getOrCreateDailyEntry(userId);
 
         const entryRef = doc(db, 'jaapEntries', entryId);
         const userRef = doc(db, 'users', userId);
 
-        // Step 2: Update the entry and user counts in parallel (different docs)
         await Promise.all([
             updateDoc(entryRef, {
                 clickCount: increment(1),
@@ -169,26 +160,24 @@ export async function addClickJaap(userId: string) {
         ]);
         console.log('[Firebase] ✅ Click jaap counts updated');
 
-        // Step 3: Update streak AFTER user doc is updated (sequential)
-        await updateStreak(userId);
+        // Streak update (non-blocking)
+        updateStreak(userId).catch(() => { });
 
-        // Step 4: Add daily log (fire and forget)
-        addDailyLog(userId, 'click', 1).catch((err) => {
-            console.warn('[Firebase] ⚠️ Daily log failed:', err);
-        });
+        // Daily log (non-blocking)
+        addDailyLog(userId, 'click', 1).catch(() => { });
 
-        // Step 5: Read back confirmed data
+        // Read back confirmed data
         const [entrySnap, userSnap] = await Promise.all([
-            getDocFromServer(entryRef),
-            getDocFromServer(userRef),
+            withTimeout(getDoc(entryRef), 5000, null),
+            withTimeout(getDoc(userRef), 5000, null),
         ]);
-        if (entrySnap.exists()) lsSet(`jaap_${userId}_daily_${today}`, entrySnap.data());
-        if (userSnap.exists()) lsSet(`jaap_${userId}_userData`, userSnap.data());
+        if (entrySnap?.exists()) lsSet(`jaap_${userId}_daily_${today}`, entrySnap.data());
+        if (userSnap?.exists()) lsSet(`jaap_${userId}_userData`, userSnap.data());
 
-        console.log('[Firebase] ✅ Click jaap saved to database!');
-        return entrySnap.exists() ? entrySnap.data() : { clickCount: 1, totalCount: 1, date: today };
+        console.log('[Firebase] ✅ Click jaap saved!');
+        return entrySnap?.exists() ? entrySnap.data() : { clickCount: 1, totalCount: 1, date: today };
     } catch (err) {
-        console.error('[Firebase] ❌ Click jaap save failed:', err);
+        console.error('[Firebase] ❌ Click jaap failed:', err);
         return addClickLocal(userId);
     }
 }
@@ -221,14 +210,11 @@ export async function addManualJaap(userId: string, count: number) {
 
     try {
         console.log('[Firebase] 🔄 addManualJaap for:', userId, 'count:', count);
-
-        // Step 1: Ensure daily entry exists
         await getOrCreateDailyEntry(userId);
 
         const entryRef = doc(db, 'jaapEntries', entryId);
         const userRef = doc(db, 'users', userId);
 
-        // Step 2: Update the entry and user counts in parallel
         await Promise.all([
             updateDoc(entryRef, {
                 manualCount: increment(count),
@@ -242,26 +228,20 @@ export async function addManualJaap(userId: string, count: number) {
         ]);
         console.log('[Firebase] ✅ Manual jaap counts updated');
 
-        // Step 3: Update streak AFTER
-        await updateStreak(userId);
+        updateStreak(userId).catch(() => { });
+        addDailyLog(userId, 'manual', count).catch(() => { });
 
-        // Step 4: Add daily log (fire and forget)
-        addDailyLog(userId, 'manual', count).catch((err) => {
-            console.warn('[Firebase] ⚠️ Daily log failed:', err);
-        });
-
-        // Step 5: Read back confirmed data
         const [entrySnap, userSnap] = await Promise.all([
-            getDocFromServer(entryRef),
-            getDocFromServer(userRef),
+            withTimeout(getDoc(entryRef), 5000, null),
+            withTimeout(getDoc(userRef), 5000, null),
         ]);
-        if (entrySnap.exists()) lsSet(`jaap_${userId}_daily_${today}`, entrySnap.data());
-        if (userSnap.exists()) lsSet(`jaap_${userId}_userData`, userSnap.data());
+        if (entrySnap?.exists()) lsSet(`jaap_${userId}_daily_${today}`, entrySnap.data());
+        if (userSnap?.exists()) lsSet(`jaap_${userId}_userData`, userSnap.data());
 
         console.log('[Firebase] ✅ Manual jaap saved! Count:', count);
-        return entrySnap.exists() ? entrySnap.data() : { manualCount: count, totalCount: count, date: today };
+        return entrySnap?.exists() ? entrySnap.data() : { manualCount: count, totalCount: count, date: today };
     } catch (err) {
-        console.error('[Firebase] ❌ Manual jaap save failed:', err);
+        console.error('[Firebase] ❌ Manual jaap failed:', err);
         return addManualLocal(userId, count);
     }
 }
@@ -302,7 +282,7 @@ async function addDailyLog(userId: string, type: 'click' | 'manual', count: numb
         });
         console.log('[Firebase] ✅ Daily log saved');
     } catch (err) {
-        console.error('[Firebase] ❌ Daily log save failed:', err);
+        console.error('[Firebase] ❌ Daily log failed:', err);
     }
     addLogLocal(userId, type, count);
 }
@@ -322,19 +302,22 @@ export async function getTodayLogs(userId: string): Promise<DailyLog[]> {
 
     try {
         const logsRef = collection(db, 'dailyLogs');
-        // Simple query without orderBy to avoid requiring a composite index
         const q = query(
             logsRef,
             where('userId', '==', userId),
             where('date', '==', today)
         );
-        const snapshot = await getDocs(q);
+        const snapshot = await withTimeout(getDocs(q), 8000, null);
+        if (snapshot === null) {
+            const key = `jaap_${userId}_logs_${today}`;
+            const stored = lsGet(key);
+            return stored ? JSON.parse(stored) : [];
+        }
         const logs = snapshot.docs.map((d) => ({
             type: d.data().type as 'click' | 'manual',
             count: d.data().count as number,
             timestamp: d.data().timestamp as number,
         }));
-        // Sort client-side instead of Firestore orderBy (avoids composite index requirement)
         logs.sort((a, b) => b.timestamp - a.timestamp);
         console.log('[Firebase] ✅ Today logs loaded:', logs.length, 'entries');
         if (logs.length > 0) return logs;
@@ -342,7 +325,6 @@ export async function getTodayLogs(userId: string): Promise<DailyLog[]> {
         console.error('[Firebase] ❌ Today logs failed:', err);
     }
 
-    // Fallback to localStorage
     const key = `jaap_${userId}_logs_${today}`;
     const stored = lsGet(key);
     return stored ? JSON.parse(stored) : [];
@@ -353,7 +335,8 @@ export async function getTodayLogs(userId: string): Promise<DailyLog[]> {
 async function updateStreak(userId: string) {
     try {
         const userRef = doc(db, 'users', userId);
-        const userSnap = await getDocFromServer(userRef);
+        const userSnap = await withTimeout(getDoc(userRef), 5000, null);
+        if (!userSnap?.exists()) return;
         const userData = userSnap.data();
         if (!userData) return;
 
@@ -365,7 +348,6 @@ async function updateStreak(userId: string) {
         let streak = userData.currentStreak || 0;
 
         if (userData.lastJaapDate === today) {
-            // Already counted today
             return;
         } else if (userData.lastJaapDate === yesterdayStr) {
             streak += 1;
@@ -374,9 +356,8 @@ async function updateStreak(userId: string) {
         }
 
         await updateDoc(userRef, { currentStreak: streak });
-        console.log('[Firebase] ✅ Streak updated to:', streak);
-    } catch (err) {
-        console.error('[Firebase] ⚠️ Streak update failed:', err);
+    } catch {
+        // non-critical
     }
 }
 
@@ -415,21 +396,21 @@ export async function getHistory(
         } else {
             q = query(jaapRef, where('userId', '==', userId));
         }
-        const snapshot = await getDocs(q);
+        const snapshot = await withTimeout(getDocs(q), 8000, null);
+        if (snapshot === null) return getHistoryLocal(userId, startDate);
+
         const results = snapshot.docs.map((d) => ({
             date: d.data().date,
             clickCount: d.data().clickCount,
             manualCount: d.data().manualCount,
             totalCount: d.data().totalCount,
         }));
-        // Sort client-side to avoid composite index requirement
         results.sort((a, b) => b.date.localeCompare(a.date));
         if (results.length > 0) return results;
     } catch {
         // fallback
     }
 
-    // Fallback: gather from localStorage
     return getHistoryLocal(userId, startDate);
 }
 
@@ -458,18 +439,24 @@ function getHistoryLocal(userId: string, startDate: string): DailySummary[] {
 export async function getCombinedTotal(): Promise<number> {
     try {
         const usersRef = collection(db, 'users');
-        const snapshot = await getDocs(usersRef);
+        const snapshot = await withTimeout(getDocs(usersRef), 8000, null);
+        if (snapshot === null) {
+            const s1 = lsGet('jaap_sevak1_userData');
+            const s2 = lsGet('jaap_sevak2_userData');
+            const t1 = s1 ? JSON.parse(s1).totalJaap || 0 : 0;
+            const t2 = s2 ? JSON.parse(s2).totalJaap || 0 : 0;
+            return t1 + t2;
+        }
         let total = 0;
         snapshot.docs.forEach((d) => {
             total += d.data().totalJaap || 0;
         });
-        console.log('[Firebase] ✅ Combined total loaded:', total);
+        console.log('[Firebase] ✅ Combined total:', total);
         if (total > 0) return total;
     } catch (err) {
         console.error('[Firebase] ❌ Combined total failed:', err);
     }
 
-    // Fallback
     const s1 = lsGet('jaap_sevak1_userData');
     const s2 = lsGet('jaap_sevak2_userData');
     const t1 = s1 ? JSON.parse(s1).totalJaap || 0 : 0;
@@ -485,9 +472,9 @@ export async function resetDailyCount(userId: string) {
 
     try {
         const entryRef = doc(db, 'jaapEntries', entryId);
-        const entrySnap = await getDocFromServer(entryRef);
+        const entrySnap = await withTimeout(getDoc(entryRef), 5000, null);
 
-        if (entrySnap.exists()) {
+        if (entrySnap?.exists()) {
             const data = entrySnap.data();
             const totalToRemove = data.totalCount || 0;
 
