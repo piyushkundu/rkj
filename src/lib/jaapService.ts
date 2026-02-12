@@ -5,6 +5,7 @@ import {
     getDocs,
     setDoc,
     updateDoc,
+    deleteDoc,
     query,
     where,
     increment,
@@ -519,4 +520,51 @@ export async function resetDailyCount(userId: string) {
 
     const logKey = `jaap_${userId}_logs_${today}`;
     if (typeof window !== 'undefined') localStorage.removeItem(logKey);
+}
+
+// ===== TOTAL RESET (delete everything for a user) =====
+
+export async function resetAllData(userId: string) {
+    console.log('[Firebase] 🔄 TOTAL RESET for user:', userId);
+
+    try {
+        // 1. Delete user document
+        const userRef = doc(db, 'users', userId);
+        await deleteDoc(userRef).catch(() => { });
+
+        // 2. Delete all jaap entries for this user
+        const entriesRef = collection(db, 'jaapEntries');
+        const entriesQuery = query(entriesRef, where('userId', '==', userId));
+        const entriesSnap = await withTimeout(getDocs(entriesQuery), 10000, null);
+        if (entriesSnap) {
+            const deletePromises = entriesSnap.docs.map((d) => deleteDoc(d.ref));
+            await Promise.all(deletePromises);
+        }
+
+        // 3. Delete all daily logs for this user
+        const logsRef = collection(db, 'dailyLogs');
+        const logsQuery = query(logsRef, where('userId', '==', userId));
+        const logsSnap = await withTimeout(getDocs(logsQuery), 10000, null);
+        if (logsSnap) {
+            const deletePromises = logsSnap.docs.map((d) => deleteDoc(d.ref));
+            await Promise.all(deletePromises);
+        }
+
+        console.log('[Firebase] ✅ All Firebase data deleted for:', userId);
+    } catch (err) {
+        console.error('[Firebase] ❌ Total reset Firebase error:', err);
+    }
+
+    // 4. Clear all localStorage for this user
+    if (typeof window !== 'undefined') {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(`jaap_${userId}`)) {
+                keysToRemove.push(key);
+            }
+        }
+        keysToRemove.forEach((key) => localStorage.removeItem(key));
+        console.log('[Firebase] ✅ localStorage cleared for:', userId, '(' + keysToRemove.length + ' keys)');
+    }
 }

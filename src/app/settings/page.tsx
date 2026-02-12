@@ -6,12 +6,14 @@ import BottomNav from '@/components/BottomNav';
 import UserSelectModal from '@/components/UserSelectModal';
 import { useUser } from '@/hooks/useUser';
 import { useSettings } from '@/hooks/useSettings';
-import { resetDailyCount } from '@/lib/jaapService';
+import { resetDailyCount, resetAllData } from '@/lib/jaapService';
 
 export default function SettingsPage() {
     const { user, selectUser, updateDisplayName, logout } = useUser();
     const { settings, updateSettings } = useSettings();
     const [showConfirm, setShowConfirm] = useState(false);
+    const [showTotalReset, setShowTotalReset] = useState(false);
+    const [totalResetInput, setTotalResetInput] = useState('');
     const [targetInput, setTargetInput] = useState('');
     const [nameInput, setNameInput] = useState('');
     const [showSaved, setShowSaved] = useState(false);
@@ -56,6 +58,21 @@ export default function SettingsPage() {
             showSavedMessage();
         } catch (error) {
             console.error('Error resetting:', error);
+        }
+        setIsResetting(false);
+    };
+
+    const handleTotalReset = async () => {
+        if (totalResetInput !== 'RESET') return;
+        setIsResetting(true);
+        try {
+            await resetAllData(user.userId);
+            setShowTotalReset(false);
+            setTotalResetInput('');
+            // Force reload to clear all state
+            window.location.reload();
+        } catch (error) {
+            console.error('Error in total reset:', error);
         }
         setIsResetting(false);
     };
@@ -177,6 +194,25 @@ export default function SettingsPage() {
                         </button>
                     </div>
 
+                    {/* TOTAL RESET */}
+                    <div className="settings-item glass-card" style={{ borderLeft: '3px solid #EF5350' }}>
+                        <div className="settings-item-info">
+                            <div className="settings-item-label">
+                                <span>&#x26A0;&#xFE0F;</span> Total Reset
+                            </div>
+                            <p className="settings-item-desc" style={{ color: '#EF5350' }}>
+                                Saara data delete ho jayega — Firebase + Local dono se
+                            </p>
+                        </div>
+                        <button
+                            className="reset-btn"
+                            style={{ borderColor: '#D32F2F', color: '#D32F2F' }}
+                            onClick={() => { setShowTotalReset(true); setTotalResetInput(''); }}
+                        >
+                            Total Reset
+                        </button>
+                    </div>
+
                     {/* App Info */}
                     <div className="settings-item glass-card" style={{ justifyContent: 'center', flexDirection: 'column', textAlign: 'center', gap: '4px' }}>
                         <p style={{ fontSize: '1.2rem' }}>&#x1F338;</p>
@@ -190,7 +226,7 @@ export default function SettingsPage() {
                 </div>
             </div>
 
-            {/* Confirm Dialog */}
+            {/* Daily Reset Confirm Dialog */}
             {showConfirm && (
                 <div className="confirm-overlay">
                     <div className="confirm-dialog glass-card">
@@ -213,6 +249,62 @@ export default function SettingsPage() {
                                 disabled={isResetting}
                             >
                                 {isResetting ? 'Resetting...' : 'Haan, Reset karo'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* TOTAL RESET Confirm Dialog */}
+            {showTotalReset && (
+                <div className="confirm-overlay">
+                    <div className="confirm-dialog glass-card">
+                        <h3 style={{ color: '#D32F2F' }}>&#x1F6A8; Total Reset</h3>
+                        <p style={{ marginBottom: '8px' }}>
+                            Saara data hamesha ke liye delete ho jayega — total jaap, daily count, history, streak, sab kuch!
+                        </p>
+                        <p style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '12px' }}>
+                            Confirm karne ke liye neeche <span style={{ color: '#D32F2F', fontFamily: 'monospace', background: 'rgba(211,47,47,0.1)', padding: '2px 6px', borderRadius: '4px' }}>RESET</span> type karein:
+                        </p>
+                        <input
+                            type="text"
+                            value={totalResetInput}
+                            onChange={(e) => setTotalResetInput(e.target.value.toUpperCase())}
+                            placeholder="Type RESET here"
+                            style={{
+                                width: '100%',
+                                padding: '12px',
+                                border: totalResetInput === 'RESET' ? '2px solid #D32F2F' : '2px solid var(--border-light)',
+                                borderRadius: 'var(--radius-md)',
+                                fontSize: '1.1rem',
+                                fontFamily: 'monospace',
+                                textAlign: 'center',
+                                letterSpacing: '4px',
+                                fontWeight: 700,
+                                color: totalResetInput === 'RESET' ? '#D32F2F' : 'var(--text-primary)',
+                                outline: 'none',
+                                marginBottom: '16px',
+                                background: 'rgba(255,255,255,0.8)',
+                            }}
+                        />
+                        <div className="confirm-buttons">
+                            <button
+                                className="confirm-cancel"
+                                onClick={() => { setShowTotalReset(false); setTotalResetInput(''); }}
+                                disabled={isResetting}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="confirm-ok"
+                                onClick={handleTotalReset}
+                                disabled={isResetting || totalResetInput !== 'RESET'}
+                                style={{
+                                    background: totalResetInput === 'RESET' ? '#D32F2F' : '#ccc',
+                                    cursor: totalResetInput === 'RESET' ? 'pointer' : 'not-allowed',
+                                }}
+                            >
+                                {isResetting ? 'Deleting...' : 'Delete All Data'}
                             </button>
                         </div>
                     </div>
