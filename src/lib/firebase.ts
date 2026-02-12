@@ -1,5 +1,5 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, Firestore } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
@@ -10,27 +10,10 @@ const firebaseConfig = {
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
 };
 
-// Validate config
-if (!firebaseConfig.projectId) {
-    console.error('[Firebase] ❌ CRITICAL: projectId is missing! Check .env.local');
-}
-
 // Initialize Firebase only if not already initialized
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+const db = getFirestore(app);
 
-// Initialize Firestore with explicit cache settings to avoid offline errors
-let db: Firestore;
-try {
-    db = initializeFirestore(app, {
-        localCache: persistentLocalCache({
-            tabManager: persistentMultipleTabManager(),
-        }),
-    });
-} catch {
-    // If already initialized (e.g. during HMR/hot reload), get the existing instance
-    db = getFirestore(app);
-}
-
-console.log('[Firebase] ✅ Initialized with project:', firebaseConfig.projectId);
+console.log('[Firebase] ✅ Connected to project:', firebaseConfig.projectId);
 
 export { app, db };
