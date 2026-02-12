@@ -93,17 +93,14 @@ export function useJaap(userId: string) {
 
             console.log('[useJaap] ✅ All data loaded — dailyCount:', firebaseData.dailyCount, 'totalJaap:', firebaseData.totalJaap, 'combined:', firebaseData.combinedTotal);
 
-            setState((prev) => {
-                // Take the HIGHER values between current state (localStorage) and Firebase
-                // This prevents Firebase zeros from overwriting good localStorage data
-                return {
-                    dailyCount: Math.max(prev.dailyCount, firebaseData.dailyCount),
-                    totalJaap: Math.max(prev.totalJaap, firebaseData.totalJaap),
-                    streak: Math.max(prev.streak, firebaseData.streak),
-                    combinedTotal: Math.max(prev.combinedTotal, firebaseData.combinedTotal),
-                    todayLogs: firebaseData.todayLogs.length > 0 ? firebaseData.todayLogs : prev.todayLogs,
-                    isLoading: false,
-                };
+            // Directly set Firebase data — no Math.max, to avoid cross-user data leakage
+            setState({
+                dailyCount: firebaseData.dailyCount,
+                totalJaap: firebaseData.totalJaap,
+                streak: firebaseData.streak,
+                combinedTotal: firebaseData.combinedTotal,
+                todayLogs: firebaseData.todayLogs,
+                isLoading: false,
             });
         } catch (error) {
             console.error('[useJaap] ❌ Error loading jaap data:', error);
@@ -114,7 +111,17 @@ export function useJaap(userId: string) {
     useEffect(() => {
         if (!userId) return;
 
-        // STEP 1: Immediately read localStorage cache (only runs on CLIENT after hydration)
+        // STEP 1: Reset state to zero when userId changes (prevents cross-user data leakage)
+        setState({
+            dailyCount: 0,
+            totalJaap: 0,
+            streak: 0,
+            combinedTotal: 0,
+            todayLogs: [],
+            isLoading: true,
+        });
+
+        // STEP 2: Immediately read localStorage cache for THIS user
         const cached = readLocalCache(userId);
         if (cached) {
             setState({
@@ -123,11 +130,11 @@ export function useJaap(userId: string) {
                 streak: cached.streak || 0,
                 combinedTotal: cached.combinedTotal || 0,
                 todayLogs: cached.todayLogs || [],
-                isLoading: false, // Show cached data immediately — no loading spinner!
+                isLoading: false,
             });
         }
 
-        // STEP 2: Fetch fresh data from Firebase in background
+        // STEP 3: Fetch fresh data from Firebase in background
         loadData();
     }, [userId, loadData]);
 
