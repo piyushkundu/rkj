@@ -786,6 +786,12 @@ body::after {
   color: var(--text-light);
 }
 
+/* ===== DESKTOP NAV (in header) ===== */
+.desktop-nav {
+  display: none;
+  gap: var(--space-sm);
+}
+
 /* ===== BOTTOM NAV ===== */
 .bottom-nav {
   position: fixed;
