@@ -70,9 +70,14 @@ export function useJaap(userId: string) {
         if (!userId) return;
 
         try {
-            // All 4 Firebase calls run in PARALLEL
-            const [userData, dailyEntry, combined, logs] = await Promise.all([
-                getOrCreateUser(userId, userId === 'sevak1' ? 'Sevak 1' : 'Sevak 2'),
+            console.log('[useJaap] 🔄 Loading data for user:', userId);
+
+            // Step 1: Ensure user exists FIRST (important for new users)
+            const userData = await getOrCreateUser(userId, userId === 'sevak1' ? 'Sevak 1' : 'Sevak 2');
+            console.log('[useJaap] ✅ User data loaded:', userData?.totalJaap);
+
+            // Step 2: Load daily entry, combined total, and logs in parallel
+            const [dailyEntry, combined, logs] = await Promise.all([
                 getOrCreateDailyEntry(userId),
                 getCombinedTotal(),
                 getTodayLogs(userId).catch(() => [] as DailyLog[]),
@@ -86,7 +91,7 @@ export function useJaap(userId: string) {
                 todayLogs: logs,
             };
 
-            console.log('[Firebase] Fetched data — dailyCount:', firebaseData.dailyCount, 'totalJaap:', firebaseData.totalJaap);
+            console.log('[useJaap] ✅ All data loaded — dailyCount:', firebaseData.dailyCount, 'totalJaap:', firebaseData.totalJaap, 'combined:', firebaseData.combinedTotal);
 
             setState((prev) => {
                 // Take the HIGHER values between current state (localStorage) and Firebase
@@ -101,7 +106,7 @@ export function useJaap(userId: string) {
                 };
             });
         } catch (error) {
-            console.error('[Firebase] Error loading jaap data:', error);
+            console.error('[useJaap] ❌ Error loading jaap data:', error);
             setState((prev) => ({ ...prev, isLoading: false }));
         }
     }, [userId]);
